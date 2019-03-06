@@ -1,0 +1,251 @@
+---
+title: "NFLscrapR"
+author: "Keith E Giles"
+date: "3/5/2019"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(nflscrapR)
+```
+
+```{r import single season and format into training set, eval = F}
+Seasons <- c(seq(2010,2018,1))
+Weeks <- seq(1,17,1)
+DeltaStats <- as.data.frame(NULL)
+for (i in 1:length(Seasons)){
+  for (j in 1:length(Weeks)){
+    GameID_DFs <- scrape_game_ids(season = Seasons[i], type = "reg", weeks = Weeks[j])
+    GameIDs <- GameID_DFs$game_id
+    for (k in 1:length(GameIDs)){
+        PlayerStats <- player_game(GameID = GameIDs[k])
+        TeamStats <- group_by(PlayerStats[c(3,6:55)],Team) %>% summarise_all(sum)
+        TeamStats$Team <- as.character(TeamStats$Team)
+        HomeTeam <- TeamStats$Team[1]
+        AwayTeam <- TeamStats$Team[2]
+        Date <- as.character(PlayerStats$date[1])
+        HomeStats <- TeamStats[1,2:51]
+        AwayStats <- TeamStats[2,2:51]
+        tmp       <- HomeStats - AwayStats
+        tmp$week <- j
+        tmp$season <- i
+        tmp$GameID <- GameIDs[k]
+        tmp$HomeTeam <- HomeTeam
+        tmp$AwayTeam <- AwayTeam
+        tmp$Date <- Date
+        DeltaStats  <- rbind(DeltaStats,tmp)
+      
+     }
+  }
+}
+#rite.table(DeltaStats, "DeltaStats.tsv", quote = F, row.names = F, col.names = T)
+```
+
+```{r regex on team names, eval=F}
+DeltaStats$HomeTeam <- gsub("GB","GNB",DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("JAC","JAX",DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("KC","KAN",DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("LA","LAR",DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("NE","NWE",DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("NO","NOR",DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("SD","SDC",DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("SF","SFO",DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("TB","TAM",DeltaStats$HomeTeam)
+table(DeltaStats$HomeTeam)
+DeltaStats$HomeTeam <- gsub("LARC","LAR",DeltaStats$HomeTeam)
+table(DeltaStats$HomeTeam)
+```
+
+```{r regex away team, eval = F}
+DeltaStats$AwayTeam <- gsub("GB","GNB",DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("JAC","JAX",DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("KC","KAN",DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("LA","LAR",DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("NE","NWE",DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("NO","NOR",DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("SD","SDC",DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("SF","SFO",DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("TB","TAM",DeltaStats$AwayTeam)
+table(DeltaStats$AwayTeam)
+DeltaStats$AwayTeam <- gsub("LARC","LAR",DeltaStats$AwayTeam)
+table(DeltaStats$AwayTeam)
+```
+
+
+```{r overwrite delta stats, eval = F}
+write.table(DeltaStats,"DeltaStats.tsv", col.names = T, row.names = F, quote = F)
+```
+
+
+
+
+```{r find scores, eval = F}
+#Seasons <- c(seq(2010,2018,1))
+#Weeks <- seq(1,17,1)
+#DeltaStats <- as.data.frame(NULL)
+#ScoresDF <- as.data.frame(NULL)
+#for (i in 1:length(Seasons)){
+  for (j in 1:length(Weeks)){
+    GameID_DFs <- scrape_game_ids(season = Seasons[i], type = "reg", weeks = Weeks[j])
+    GameIDs <- as.character(GameID_DFs$game_id)
+    for (k in 1:length(GameIDs)){
+        HomeScore <- GameID_DFs$home_score[k]
+        AwayScore <- GameID_DFs$away_score[k]
+        tmp  <- cbind(GameIDs[k],HomeScore,AwayScore)
+        ScoresDF <- rbind(ScoresDF,tmp)
+    }
+   }
+}
+#colnames(ScoresDF) <- c("GameID","HomeScore","AwayScore")    
+#write.table(ScoresDF, "/data/kegiles/ToyData/nflscrapR/ScoresDF.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
+```
+
+
+```{r combine stats and scores, eval = T}
+DeltaStatsImported <- read.table("./DeltaStats.tsv", header = T)
+ScoresDF <- read.table("./ScoresDF.tsv", header = T)
+TrainingSet <- merge(x = DeltaStatsImported, y = ScoresDF)
+colnames(TrainingSet) <- gsub("AwaysCore","AwayScore",colnames(TrainingSet))
+```
+
+```{r parse out home teams, eval = F}
+HomeTrainingSet <- TrainingSet
+HomeTrainingSet$Team <- HomeTrainingSet$HomeTeam
+HomeTrainingSet$Location <- "H"
+HomeTrainingSet$NetScore <- HomeTrainingSet$HomeScore - HomeTrainingSet$AwayScore
+HomeTrainingSet <- subset(HomeTrainingSet, select = -c(HomeTeam,AwayTeam,HomeScore,AwayScore))
+colnames(HomeTrainingSet)
+```
+```{r parse out away teams, eval = F}
+AwayTrainingSet <- TrainingSet
+AwayTrainingSet[2:51] <- lapply(AwayTrainingSet[2:51], function(x) x * -1)
+AwayTrainingSet$Team <- AwayTrainingSet$AwayTeam
+AwayTrainingSet$Location <- "A"
+AwayTrainingSet$NetScore <- AwayTrainingSet$AwayScore - AwayTrainingSet$HomeScore
+AwayTrainingSet <- subset(AwayTrainingSet, select = -c(HomeTeam,AwayTeam,HomeScore,AwayScore))
+colnames(AwayTrainingSet)
+```
+
+```{r merge back hoem and away to generate rolling MA5, eval= F}
+AllGames <- rbind(HomeTrainingSet, AwayTrainingSet)
+AllGames <- AllGames[order(AllGames$Team, AllGames$Date),]
+head(AllGames)
+```
+
+```{r calcualte rolling average MA5, eval = F}
+library(zoo)
+AllGamesMA5 <- AllGames
+AllGamesMA5[c(2:51,57)] <- lapply(AllGamesMA5[c(2:51,57)], function(x) rollmean(x = x, k = 5, fill = NA,na.pad = T,align = "right"))
+colnames(AllGamesMA5) <- gsub("NetScore","NetScoreMA5",colnames(AllGamesMA5))
+AllGamesMA5$NetScore <- AllGames$NetScore
+AllGamesMA5 <- subset(AllGamesMA5, week >= 5 & Location == "H")
+```
+
+```{r drop unnecesarry features and build model, eval = F}
+DevSet <- AllGamesMA5
+DevSet <- DevSet[-c(1,53:56)]
+DevSet <- DevSet[c(53,52,1:51)]
+DevSet$week <- as.factor(as.character(DevSet$week))
+```
+
+```{r randomize and create train/test, eval = F}
+set.seed(1)
+RandomDevSet <- DevSet[sample(nrow(DevSet)),]
+RandomDevSetTrain <- head(RandomDevSet, nrow(RandomDevSet)*.9)
+RandomDevSetTest <- tail(RandomDevSet, nrow(RandomDevSet)* .1)
+```
+
+Build models:
+```{r linear regression, eval=F}
+LinearModel1 <- lm(NetScore ~ ., data = RandomDevSetTrain)
+PredictedNetScore <- predict(LinearModel1, RandomDevSetTest[2:53])
+SummaryLM1 <- data.frame(cbind(RandomDevSetTest$NetScore, PredictedNetScore))
+colnames(SummaryLM1) <- c("ActualNetScore","PredictedNetScore")
+SummaryLM1$Residual <- abs(SummaryLM1$ActualNetScore - SummaryLM1$PredictedNetScore)
+mean(SummaryLM1$Residual)
+```
+
+```{r random Forest, eval = F}
+library(randomForest)
+RF1 <- randomForest(NetScore ~ ., data = RandomDevSetTrain, ntree = 500, mtry = 30)
+PredictedRF1 <- predict(RF1, RandomDevSetTest[2:53])
+SummaryRF1 <- data.frame(cbind(RandomDevSetTest$NetScore, PredictedRF1))
+colnames(SummaryRF1) <- c("ActualNetScore","PredictedNetScore")
+SummaryRF1$Residual <- abs(SummaryRF1$ActualNetScore - SummaryRF1$PredictedNetScore)
+mean(SummaryRF1$Residual)
+```
+
+
+```{r extra trees, eval = F}
+library(extraTrees)
+x <- RandomDevSetTrain[2:53]
+x <- data.matrix(x)
+y <- RandomDevSetTrain$NetScore
+xt1 <- extraTrees(x=x, y = y, ntree = 500, mtry = 30, numThreads = 20)
+PredictedXT1 <- predict(xt1, data.matrix(RandomDevSetTest[2:53]))
+SummaryXT1 <- data.frame(cbind(RandomDevSetTest$NetScore,PredictedXT1))
+colnames(SummaryXT1) <- c("ActualNetScore","PredictedNetScore")
+SummaryXT1$Residual <- abs(SummaryXT1$ActualNetScore - SummaryXT1$PredictedNetScore)
+mean(SummaryXT1$Residual)
+```
+
+
+Predicting the score is too hard.  But can we predict the winner
+
+```{r convert into a logistic problem, eval = F}
+LogitDevSet <- RandomDevSet
+LogitDevSet$Winner <- ifelse(RandomDevSet$NetScore > 0, 1, 0)
+LogitDevSet  <- subset(LogitDevSet, select = -c(NetScore))
+LogitDevSet <- LogitDevSet[c(53,1:52)]
+colnames(LogitDevSet)
+```
+
+```{r train/test split, eval = F}
+LogitDevSet$Winner <- as.numeric(as.character(LogitDevSet$Winner))
+LogitDevSetTrain <- head(LogitDevSet, nrow(LogitDevSet)*.9)
+LogitDevSetTest <- tail(LogitDevSet, nrow(LogitDevSet)* .1)
+head(LogitDevSet)
+```
+
+
+```{r logit, eval = F}
+Logit1 <- glm(Winner ~ ., data = LogitDevSetTrain, family = binomial(link = "logit"))
+predictLogit1 <- predict(Logit1, LogitDevSetTest[2:53], type = "response")
+SummaryLogit1 <- data.frame(cbind(LogitDevSetTest$Winner, predictLogit1))
+colnames(SummaryLogit1) <- c("ActualResult","PredictedResult")
+SummaryLogit1$Decision <- ifelse(SummaryLogit1$PredictedResult > .5, 1, 0)
+SummaryLogit1$Eval <- ifelse(SummaryLogit1$ActualResult == SummaryLogit1$Decision,1,0)
+paste0("Logit Accuracy is:",sum(SummaryLogit1$Eval)/nrow(SummaryLogit1)* 100)
+```
+
+
+
+
+
+```{r random Forest, eval = F}
+set.seed(1)
+RF2 <- randomForest(Winner ~ ., data = LogitDevSetTrain, ntree = 500, mtry = 30)
+PredictedRF2 <- predict(RF2, LogitDevSetTest[2:53])
+SummaryRF2 <- data.frame(cbind(LogitDevSetTest$Winner, PredictedRF2))
+colnames(SummaryRF2) <- c("ActualResult","PredictedResult")
+SummaryRF2$Decision <- ifelse(SummaryRF2$PredictedResult > .5, 1, 0)
+SummaryRF2$Eval <- ifelse(SummaryRF2$ActualResult == SummaryRF2$Decision, 1, 0)
+paste0("Accuracy of the RF model is:",sum(SummaryRF2$Eval)/nrow(SummaryRF2)*100)
+```
+
+
+
+```{r extraTrees, eval = F}
+set.seed(1)
+x <- data.matrix(LogitDevSetTrain[2:53])
+y <- LogitDevSetTrain$Winner
+XT2 <- extraTrees(x =x, y = y, ntree = 500, mtry = 30, numThreads = 20)
+PredictedXT2 <- predict(XT2, data.matrix(LogitDevSetTest[2:53]))
+SummaryXT2 <- data.frame(cbind(LogitDevSetTest$Winner, PredictedXT2))
+colnames(SummaryXT2) <- c("ActualResult","PredictedResult")
+SummaryXT2$Decision <- ifelse(SummaryXT2$PredictedResult > .5, 1, 0)
+SummaryXT2$Eval <- ifelse(SummaryXT2$ActualResult == SummaryXT2$Decision, 1, 0)
+paste0("Accuracy of the XT model is:",sum(SummaryXT2$Eval)/nrow(SummaryXT2)*100)
+```
+
+
